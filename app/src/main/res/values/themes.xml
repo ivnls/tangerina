@@ -1,0 +1,11 @@
+<resources>
+    <style name="Theme.Tangerina" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:statusBarColor">@color/bg</item>
+        <item name="android:navigationBarColor">@color/bg</item>
+        <item name="android:colorPrimary">@color/orange</item>
+        <item name="android:colorAccent">@color/orange</item>
+        <item name="android:colorControlActivated">@color/orange</item>
+        <item name="android:textColorHighlight">#66FF9419</item>
+    </style>
+</resources>
