@@ -176,17 +176,18 @@ class MapRenderer {
 
     // ------------------------------------------------------------- linhas
 
-    private class Style(val h: Char, val v: Char, val cross: Char, val color: Int, val p: Int, val dotted: Char = ' ')
+    /** Estilo de via: um único caractere, girado no ângulo real do segmento. */
+    private class Style(val c: Char, val color: Int, val p: Int)
 
     private val styles = arrayOfNulls<Style>(K.COUNT).also {
-        it[K.PATH] = Style(' ', ' ', ' ', P.DIM, 4, '·')
-        it[K.SERVICE] = Style('─', '│', '┼', P.DIM, 5)
-        it[K.STREAM] = Style(' ', ' ', ' ', P.WATER, 6, '~')
-        it[K.MINOR] = Style('─', '│', '┼', P.FG, 7)
-        it[K.RAIL] = Style('╪', '╫', '╬', P.DIM, 8)
-        it[K.RIVER] = Style(' ', ' ', ' ', P.WATER, 9, '≈')
-        it[K.MAJOR] = Style('━', '┃', '╋', P.HI, 10)
-        it[K.MOTORWAY] = Style('═', '║', '╬', P.HI, 11)
+        it[K.PATH] = Style('·', P.DIM, 4)
+        it[K.SERVICE] = Style('─', P.DIM, 5)
+        it[K.STREAM] = Style('~', P.WATER, 6)
+        it[K.MINOR] = Style('─', P.FG, 7)
+        it[K.RAIL] = Style('╪', P.DIM, 8)
+        it[K.RIVER] = Style('≈', P.WATER, 9)
+        it[K.MAJOR] = Style('━', P.HI, 10)
+        it[K.MOTORWAY] = Style('═', P.HI, 11)
     }
 
     private fun line(f: Feature) {
@@ -199,6 +200,7 @@ class MapRenderer {
         // recorte Liang–Barsky
         val xmin = rx - 1.0; val xmax = rx + w + 1.0; val ymin = ry - 1.0; val ymax = ry + h + 1.0
         val dx = x2 - x1; val dy = y2 - y1
+        if (dx == 0.0 && dy == 0.0) return
         var t0 = 0.0; var t1 = 1.0
         val pp = doubleArrayOf(-dx, dx, -dy, dy)
         val qq = doubleArrayOf(x1 - xmin, xmax - x1, y1 - ymin, ymax - y1)
@@ -212,33 +214,48 @@ class MapRenderer {
         }
         val ax = x1 + t0 * dx; val ay = y1 + t0 * dy
         val bx = x1 + t1 * dx; val by = y1 + t1 * dy
-        val c: Char = if (st.dotted != ' ') st.dotted else {
-            val ang = Math.toDegrees(atan2(abs(dy * cellH), abs(dx * cellW)))
-            when {
-                ang < 27 -> st.h
-                ang > 63 -> st.v
-                (dx > 0) == (dy > 0) -> '╲'
-                else -> '╱'
-            }
-        }
-        val steps = (max(abs(bx - ax), abs(by - ay)) * 2).toInt() + 1
+        // ângulo em pixels de tela (células não são quadradas)
+        val vx = dx * cellW; val vy = dy * cellH
+        val ang = Math.toDegrees(atan2(vy, vx)).toFloat()
+        val vv = vx * vx + vy * vy
+        val steps = (max(abs(bx - ax), abs(by - ay)) * 4).toInt() + 1
+        var lc = Int.MIN_VALUE; var lr = Int.MIN_VALUE
         for (s in 0..steps) {
             val t = s.toDouble() / steps
-            plotLine(floor(ax + (bx - ax) * t).toInt(), floor(ay + (by - ay) * t).toInt(), c, st)
+            val c = floor(ax + (bx - ax) * t).toInt(); val r = floor(ay + (by - ay) * t).toInt()
+            if (c == lc && r == lr) continue
+            lc = c; lr = r
+            // ponto do segmento mais próximo do centro da célula
+            val cx = c + 0.5; val cy = r + 0.5
+            val tt = (((cx - x1) * cellW * vx + (cy - y1) * cellH * vy) / vv).coerceIn(0.0, 1.0)
+            // sem limitar a ±0.5: se a via só raspa o canto, o recorte cuida disso
+            val ox = (x1 + tt * dx - cx).coerceIn(-1.5, 1.5).toFloat()
+            val oy = (y1 + tt * dy - cy).coerceIn(-1.5, 1.5).toFloat()
+            plotLine(c, r, st, ang, ox, oy)
         }
     }
 
-    private fun plotLine(c: Int, r: Int, ch: Char, st: Style) {
+    private fun angClose(a: Float, b: Float, lim: Float): Boolean {
+        val d = abs(((a - b) % 180f + 180f) % 180f)
+        return d < lim || d > 180f - lim
+    }
+
+    private fun plotLine(c: Int, r: Int, st: Style, ang: Float, ox: Float, oy: Float) {
         if (!inside(c, r)) return
         val i = (r - ry) * w + (c - rx)
         val p = st.p
-        if (prio[i] > p) return
-        if (prio[i] == p && owner[i] != fid) {
-            if (st.cross != ' ' && g.get(c, r) != ch) g.set(c, r, st.cross, st.color)
+        val line = g.hasStroke(c, r)
+        val free2 = !g.hasStroke2(c, r)
+        if (prio[i] > p || (prio[i] == p && line)) {
+            // célula já tem via: vira cruzamento/curva no segundo traço
+            // na mesma via só vira 2º traço se a curva for forte (evita "ganchos")
+            val lim = if (owner[i] == fid) 30f else 8f
+            if (line && free2 && !angClose(g.strokeAng(c, r), ang, lim)) g.setStroke2(c, r, st.c, st.color, ang, ox, oy)
             return
         }
+        if (line && free2) g.pushDown(c, r)
         prio[i] = p; owner[i] = fid
-        g.set(c, r, ch, st.color)
+        g.setStroke(c, r, st.c, st.color, ang, ox, oy)
     }
 
     // ------------------------------------------------------------- rótulos

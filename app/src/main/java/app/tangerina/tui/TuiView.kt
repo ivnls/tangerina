@@ -123,18 +123,18 @@ class TuiView(ctx: Context) : View(ctx) {
                 val c = g.ch[i]
                 if (c == ' ') continue
                 val col = tc(g.fg[i])
-                if (col != last) {
-                    last = col
-                    tp.color = col; lp.color = col
-                    if (glow) {
-                        val sh = (col and 0x00FFFFFF) or 0x77000000
-                        tp.setShadowLayer(glowR, 0f, 0f, sh)
-                        lp.setShadowLayer(glowR, 0f, 0f, sh)
-                    } else {
-                        tp.clearShadowLayer(); lp.clearShadowLayer()
-                    }
-                }
+                if (col != last) { last = col; setColor(col, glowR) }
                 val x0 = offX + x * cellW
+                if (!g.ang[i].isNaN()) {
+                    stroke(canvas, c, g.ang[i], g.ox[i], g.oy[i], x0, y0, thin)
+                    if (!g.ang2[i].isNaN()) {
+                        val c2 = tc(g.fg2[i])
+                        if (c2 != last) setColor(c2, glowR)
+                        stroke(canvas, g.ch2[i], g.ang2[i], g.ox2[i], g.oy2[i], x0, y0, thin)
+                        if (c2 != last) setColor(last, glowR)
+                    }
+                    continue
+                }
                 if (!special(canvas, c, x0, y0, col, thin)) {
                     canvas.drawText(g.ch, i, 1, x0, y0 + base, tp)
                 }
@@ -151,6 +151,57 @@ class TuiView(ctx: Context) : View(ctx) {
                 yy += step
             }
         }
+    }
+
+    private fun setColor(col: Int, glowR: Float) {
+        tp.color = col; lp.color = col
+        if (glow) {
+            val sh = (col and 0x00FFFFFF) or 0x77000000
+            tp.setShadowLayer(glowR, 0f, 0f, sh)
+            lp.setShadowLayer(glowR, 0f, 0f, sh)
+        } else {
+            tp.clearShadowLayer(); lp.clearShadowLayer()
+        }
+    }
+
+    private val seg = FloatArray(4)
+
+    /**
+     * Desenha um caractere girado no ângulo da via, passando pelo ponto
+     * deslocado (ox,oy) dentro da célula. Traços de linha são recortados à
+     * célula, o que mantém a via contínua de uma célula para a outra.
+     */
+    private fun stroke(cv: Canvas, c: Char, angDeg: Float, ox: Float, oy: Float, x0: Float, y0: Float, thin: Float) {
+        val px = x0 + cellW * (0.5f + ox); val py = y0 + cellH * (0.5f + oy)
+        val a = Math.toRadians(angDeg.toDouble())
+        val dx = kotlin.math.cos(a).toFloat(); val dy = kotlin.math.sin(a).toFloat()
+        if (!Stroke.isLine(c)) {
+            cv.save()
+            cv.rotate(Stroke.upright(angDeg), px, py)
+            cv.drawText(charArrayOf(c), 0, 1, px - cellW / 2, py - cellH / 2 + base, tp)
+            cv.restore()
+            return
+        }
+        val e = 0.6f
+        val l = x0 - e; val t = y0 - e; val r = x0 + cellW + e; val b = y0 + cellH + e
+        lp.strokeCap = Paint.Cap.BUTT
+        fun ln(qx: Float, qy: Float, wdt: Float) {
+            if (Stroke.clip(qx, qy, dx, dy, l, t, r, b, seg)) {
+                lp.strokeWidth = wdt; cv.drawLine(seg[0], seg[1], seg[2], seg[3], lp)
+            }
+        }
+        when (c) {
+            '━' -> ln(px, py, thin * 2.4f)
+            '═' -> { val o = thin * 1.3f; ln(px - dy * o, py + dx * o, thin * 0.9f); ln(px + dy * o, py - dx * o, thin * 0.9f) }
+            '╪' -> {
+                ln(px, py, thin)
+                val k = cellW * 0.32f
+                lp.strokeWidth = thin
+                cv.drawLine(px - dy * k, py + dx * k, px + dy * k, py - dx * k, lp)
+            }
+            else -> ln(px, py, thin)
+        }
+        lp.strokeCap = Paint.Cap.SQUARE
     }
 
     /** Pesos u,d,l,r: 0 nenhum, 1 fino, 2 grosso, 3 duplo. */

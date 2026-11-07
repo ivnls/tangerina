@@ -28,6 +28,11 @@ class RenderPreviewTest {
         k[K.RIVER].add(way(id++, K.RIVER, "Rio Tamanduateí", lat0 - 0.0072, lon0 - 0.01, lat0 - 0.0062, lon0, lat0 - 0.0075, lon0 + 0.01))
         k[K.GREEN].add(way(id++, K.GREEN, "Parque", lat0 + 0.0012, lon0 - 0.0055, lat0 + 0.0012, lon0 - 0.0025, lat0 + 0.0032, lon0 - 0.0025, lat0 + 0.0032, lon0 - 0.0055))
         k[K.WATER].add(way(id++, K.WATER, "Lago", lat0 + 0.0016, lon0 + 0.003, lat0 + 0.0024, lon0 + 0.0052, lat0 + 0.0034, lon0 + 0.0040, lat0 + 0.0026, lon0 + 0.0028))
+        run {
+            val pts = ArrayList<Double>()
+            for (j in 0..40) { val t = j / 40.0; pts.add(lat0 - 0.0030 + 0.0045 * t); pts.add(lon0 - 0.0075 + 0.0060 * Math.sin(t * Math.PI * 1.2)) }
+            k[K.MAJOR].add(way(id++, K.MAJOR, "Av. Curva", *pts.toDoubleArray()))
+        }
         k[K.RAIL].add(way(id++, K.RAIL, null, lat0 - 0.01, lon0 + 0.0072, lat0 + 0.01, lon0 + 0.0060))
         for (j in 0..4) {
             val la = lat0 - 0.0040 + j * 0.0004; val lo = lon0 - 0.0062
@@ -72,19 +77,58 @@ class RenderPreviewTest {
 
     private fun html(g: Grid, out: File) {
         fun hex(c: Int) = String.format("#%06X", c and 0xFFFFFF)
+        val cw = 14f; val chh = 28f; val thin = 2.2f
         val sb = StringBuilder()
-        sb.append("<html><body style='margin:0;background:#0B0602'><div id='t' style=\"font:bold 22px/28px 'DejaVu Sans Mono',monospace;white-space:pre\">")
-        for (y in 0 until g.rows) {
-            for (x in 0 until g.cols) {
-                val i = y * g.cols + x
-                val c = g.ch[i]
-                val e = when (c) { '<' -> "&lt;"; '>' -> "&gt;"; '&' -> "&amp;"; else -> c.toString() }
-                sb.append("<span style='display:inline-block;width:14px;height:28px;overflow:visible;color:").append(hex(g.fg[i]))
-                    .append(";background:").append(hex(g.bg[i])).append("'>").append(e).append("</span>")
-            }
-            sb.append("\n")
+        sb.append("<html><body style='margin:0;background:#0B0602'><svg id='t' xmlns='http://www.w3.org/2000/svg' width='${g.cols * cw}' height='${g.rows * chh}' ")
+            .append("font-family='DejaVu Sans Mono,monospace' font-weight='bold' font-size='22'>")
+        for (y in 0 until g.rows) for (x in 0 until g.cols) {
+            val i = y * g.cols + x
+            sb.append("<rect x='${x * cw}' y='${y * chh}' width='${cw + 0.6f}' height='${chh + 0.6f}' fill='${hex(g.bg[i])}'/>")
         }
-        sb.append("</div></body></html>")
+        val seg = FloatArray(4)
+        fun line(ax: Float, ay: Float, bx: Float, by: Float, w: Float, col: String) =
+            sb.append("<line x1='$ax' y1='$ay' x2='$bx' y2='$by' stroke='$col' stroke-width='$w'/>")
+        fun stroke(c: Char, a: Float, ox: Float, oy: Float, x0: Float, y0: Float, col: String) {
+            val px = x0 + cw * (0.5f + ox); val py = y0 + chh * (0.5f + oy)
+            val r = Math.toRadians(a.toDouble()); val dx = Math.cos(r).toFloat(); val dy = Math.sin(r).toFloat()
+            if (!Stroke.isLine(c)) {
+                sb.append("<text x='$px' y='${py + 8}' fill='$col' text-anchor='middle' transform='rotate(${Stroke.upright(a)} $px $py)'>$c</text>")
+                return
+            }
+            fun ln(qx: Float, qy: Float, w: Float) {
+                if (Stroke.clip(qx, qy, dx, dy, x0 - 0.6f, y0 - 0.6f, x0 + cw + 0.6f, y0 + chh + 0.6f, seg)) line(seg[0], seg[1], seg[2], seg[3], w, col)
+            }
+            when (c) {
+                '━' -> ln(px, py, thin * 2.4f)
+                '═' -> { val o = thin * 1.3f; ln(px - dy * o, py + dx * o, thin * 0.9f); ln(px + dy * o, py - dx * o, thin * 0.9f) }
+                '╪' -> { ln(px, py, thin); val k = cw * 0.32f; line(px - dy * k, py + dx * k, px + dy * k, py - dx * k, thin, col) }
+                else -> ln(px, py, thin)
+            }
+        }
+        for (y in 0 until g.rows) for (x in 0 until g.cols) {
+            val i = y * g.cols + x
+            val c = g.ch[i]
+            val x0 = x * cw; val y0 = y * chh
+            if (!g.ang[i].isNaN()) {
+                stroke(c, g.ang[i], g.ox[i], g.oy[i], x0, y0, hex(g.fg[i]))
+                if (!g.ang2[i].isNaN()) stroke(g.ch2[i], g.ang2[i], g.ox2[i], g.oy2[i], x0, y0, hex(g.fg2[i]))
+                continue
+            }
+            if (c == ' ') continue
+            val col = hex(g.fg[i])
+            when (c) {
+                '▌' -> sb.append("<rect x='$x0' y='$y0' width='${cw / 2}' height='$chh' fill='$col'/>")
+                '─' -> line(x0, y0 + chh / 2, x0 + cw, y0 + chh / 2, thin, col)
+                '├', '┤' -> { line(x0 + cw / 2, y0, x0 + cw / 2, y0 + chh, thin, col); line(x0 + cw / 2, y0 + chh / 2, if (c == '├') x0 + cw else x0, y0 + chh / 2, thin, col) }
+                else -> {
+                    val e = when (c) { '<' -> "&lt;"; '>' -> "&gt;"; '&' -> "&amp;"; else -> c.toString() }
+                    sb.append("<text x='${x0 + cw / 2}' y='${y0 + 21}' fill='$col' text-anchor='middle'>$e</text>")
+                }
+            }
+        }
+        var yy = 0f
+        while (yy < g.rows * chh) { sb.append("<rect x='0' y='$yy' width='${g.cols * cw}' height='2' fill='black' fill-opacity='0.22'/>"); yy += 5 }
+        sb.append("</svg></body></html>")
         out.parentFile.mkdirs(); out.writeText(sb.toString())
     }
 }

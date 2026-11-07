@@ -11,15 +11,54 @@ class Grid {
     var fg = IntArray(0); private set
     var bg = IntArray(0); private set
 
+    // Traços girados (ruas): ângulo em graus (NaN = célula comum) e deslocamento
+    // do ponto por onde a linha passa, em frações da célula a partir do centro.
+    // Um segundo traço por célula permite cruzamentos e curvas.
+    var ang = FloatArray(0); private set
+    var ox = FloatArray(0); private set
+    var oy = FloatArray(0); private set
+    var ch2 = CharArray(0); private set
+    var fg2 = IntArray(0); private set
+    var ang2 = FloatArray(0); private set
+    var ox2 = FloatArray(0); private set
+    var oy2 = FloatArray(0); private set
+
     fun resize(c: Int, r: Int) {
         if (c == cols && r == rows) return
         cols = c; rows = r
-        ch = CharArray(c * r); fg = IntArray(c * r); bg = IntArray(c * r)
+        val n = c * r
+        ch = CharArray(n); fg = IntArray(n); bg = IntArray(n)
+        ang = FloatArray(n); ox = FloatArray(n); oy = FloatArray(n)
+        ch2 = CharArray(n); fg2 = IntArray(n); ang2 = FloatArray(n); ox2 = FloatArray(n); oy2 = FloatArray(n)
         clear()
     }
 
     fun clear(f: Int = P.FG, b: Int = P.BG) {
         ch.fill(' '); fg.fill(f); bg.fill(b)
+        ang.fill(Float.NaN); ang2.fill(Float.NaN)
+    }
+
+    fun hasStroke(x: Int, y: Int) = ok(x, y) && !ang[y * cols + x].isNaN()
+    fun hasStroke2(x: Int, y: Int) = ok(x, y) && !ang2[y * cols + x].isNaN()
+    fun strokeAng(x: Int, y: Int) = ang[y * cols + x]
+
+    fun setStroke(x: Int, y: Int, c: Char, f: Int, a: Float, dx: Float, dy: Float) {
+        if (!ok(x, y)) return
+        val i = y * cols + x
+        ch[i] = c; fg[i] = f; ang[i] = a; ox[i] = dx; oy[i] = dy
+    }
+
+    fun setStroke2(x: Int, y: Int, c: Char, f: Int, a: Float, dx: Float, dy: Float) {
+        if (!ok(x, y)) return
+        val i = y * cols + x
+        ch2[i] = c; fg2[i] = f; ang2[i] = a; ox2[i] = dx; oy2[i] = dy
+    }
+
+    /** Move o traço principal para o segundo slot. */
+    fun pushDown(x: Int, y: Int) {
+        if (!ok(x, y)) return
+        val i = y * cols + x
+        ch2[i] = ch[i]; fg2[i] = fg[i]; ang2[i] = ang[i]; ox2[i] = ox[i]; oy2[i] = oy[i]
     }
 
     fun ok(x: Int, y: Int) = x in 0 until cols && y in 0 until rows
@@ -30,6 +69,7 @@ class Grid {
         if (!ok(x, y)) return
         val i = y * cols + x
         ch[i] = c
+        ang[i] = Float.NaN; ang2[i] = Float.NaN
         if (f != KEEP) fg[i] = f
         if (b != KEEP) bg[i] = b
     }
